@@ -52,11 +52,11 @@ def final_class(sentence1, sentence2):
 for ta_num in reversed(range(6, 12)):
     
     print('Getting model.')
-    model = torch.load(os.path.join(trained, 'ta' + str(ta_num) + '.bin'))
+    model = torch.load(os.path.join(trained, 'ta_' + str(ta_num) + '.bin'))
     model.eval()
     model.to(device)
 
-    ffn = torch.load(os.path.join(linears, 'ta' + str(ta_num) + '.bin'))
+    ffn = torch.load(os.path.join(linears, 'ta_' + str(ta_num) + '.bin'))
     ffn.eval()
     ffn.to(device)
     print('Done.')
