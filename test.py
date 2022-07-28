@@ -10,14 +10,14 @@ from evaluate import load
 logging.set_verbosity_error()
 
 max_length = 128
-device = 'cuda:2'
+device = 'cuda:1'
 
 langs = ['ar', 'bg', 'de', 'el', 'en', 'es', 'fr', 'hi', 'ru', 'sw', 'th', 'tr', 'ur', 'vi', 'zh']
 
 # paths
 proj_dir = os.path.join('/home', 'ddegenaro', 'CAMeMBERT')
 trained = os.path.join(proj_dir, 'trained')
-linears = os.path.join(proj_dir, 'linears')
+finetuned = os.path.join(proj_dir, 'finetuned')
 
 print('Getting tokenizer.')
 tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased', do_lower_case=False)
@@ -28,40 +28,14 @@ test_data = load_dataset('xnli', split='test', language='all_languages').shuffle
 xnli_metric = load("xnli")
 print('Done.')
 
-class FFN(torch.nn.Module):
-    def __init__(self):
-        super(FFN, self).__init__()
-        self.linear = torch.nn.Sequential(torch.nn.LazyLinear(3))
-    def forward(self, x):
-        x = torch.reshape(x, (1, max_length*119547))
-        return self.linear(x)
-
-def probs_test(sentence1, sentence2):
-    inputs = tokenizer(sentence1, sentence2, return_tensors='pt', padding='max_length', max_length=max_length, truncation=True)
-    inputs.to(device)
-
-    with torch.no_grad():
-        bert_outputs = model(**inputs).prediction_logits
-        final_outputs = ffn(bert_outputs)
-
-    return final_outputs
-
-def final_class(sentence1, sentence2):
-    return np.argmax(np.array(probs_test(sentence1, sentence2).to('cpu')))
-
 for ta_num in reversed(range(6, 12)):
     
     print('Getting model.')
-    model = torch.load(os.path.join(trained, 'ta_' + str(ta_num) + '.bin'))
+    model = torch.load(os.path.join(finetuned, f'ta_{ta_num}.bin'))
     model.eval()
     model.to(device)
 
-    ffn = torch.load(os.path.join(linears, 'ta_' + str(ta_num) + '.bin'))
-    ffn.eval()
-    ffn.to(device)
-    print('Done.')
-
-    preds = dict.fromkeys(langs)    
+    preds = dict.fromkeys(langs)
     for lang in langs:
         preds[lang] = []
 
@@ -76,13 +50,17 @@ for ta_num in reversed(range(6, 12)):
         refs.append(item['label'])
 
         for j in range(len(langs)):
-  
+
             sentence1 = item['premise'][langs[j]]
             sentence2 = item['hypothesis']['translation'][j]
+            
+            inputs = tokenizer(sentence1, sentence2, return_tensors='pt', padding='max_length', max_length=max_length, truncation=True)
+            inputs.to(device)
 
-            predicted_class_id = final_class(sentence1, sentence2)
+            with torch.no_grad():
+                outputs = np.argmax(np.array(model(**inputs).logits[0].to('cpu')))
 
-            preds[langs[j]].append(predicted_class_id)
+            preds[langs[j]].append(outputs)
 
         i += 1
 
@@ -90,8 +68,18 @@ for ta_num in reversed(range(6, 12)):
             print(f'Completed {i} examples.')
 
     results = dict.fromkeys(langs)
+    
+    ###
+    print(i)
+    print(refs)
+    ###
+
     for lang in langs:
         results[lang] = xnli_metric.compute(predictions=preds[lang], references=refs)
+        
+        ###
+        print(preds[lang])
+        ###
 
     results_file = os.path.join(proj_dir, 'results_' + str(ta_num))
     print(f'TA {ta_num} evaluated. Results written to {results_file}.')
